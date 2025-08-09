@@ -1,0 +1,511 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+class NotificationService {
+  static final NotificationService _instance = NotificationService._internal();
+  factory NotificationService() => _instance;
+  NotificationService._internal();
+
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  // Menyimpan data terakhir untuk pemeriksaan
+  final Map<String, String> _lastDeviceAlerts = {};
+  bool _isInitialized = false;
+
+  // Inisialisasi dasar
+  Future<void> initialize() async {
+    if (_isInitialized || kIsWeb) return;
+
+    if (Platform.isAndroid || Platform.isIOS) {
+      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+        'panic_button_channel',
+        'Panic Button Notifications',
+        description: 'Notifications for Panic Button alerts',
+        importance: Importance.max,
+        enableVibration: true,
+        playSound: true,
+        showBadge: true,
+        enableLights: true,
+      );
+
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@drawable/sanur');
+
+      final DarwinInitializationSettings initializationSettingsIOS =
+          DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+        onDidReceiveLocalNotification: (id, title, body, payload) async {
+          print('Received iOS notification: $title');
+        },
+      );
+
+      final InitializationSettings initializationSettings =
+          InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: initializationSettingsIOS,
+      );
+
+      await flutterLocalNotificationsPlugin.initialize(
+        initializationSettings,
+        onDidReceiveNotificationResponse: (details) async {
+          print('Notification tapped: ${details.payload}');
+          if (details.payload != null) {
+            handleNotificationTap(details.payload!);
+          }
+        },
+      );
+
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+
+      if (Platform.isIOS) {
+        await flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<
+                IOSFlutterLocalNotificationsPlugin>()
+            ?.requestPermissions(
+              alert: true,
+              badge: true,
+              sound: true,
+            );
+      }
+
+      await _ensureDeviceIdentifierExists();
+      await _initializeService();
+      _isInitialized = true;
+    }
+  }
+
+  // Handle tap notifikasi
+  void handleNotificationTap(String payload) {
+    try {
+      final Map<String, dynamic> data = json.decode(payload);
+      print('Handling notification tap with data: $data');
+      // Implementasi penanganan tap sesuai kebutuhan
+    } catch (e) {
+      print('Error handling notification tap: $e');
+    }
+  }
+
+  // Inisialisasi service background
+  Future<void> _initializeService() async {
+    final service = FlutterBackgroundService();
+
+    await service.configure(
+      androidConfiguration: AndroidConfiguration(
+        onStart: onStart,
+        autoStart: true,
+        isForegroundMode: true,
+        foregroundServiceNotificationId: 888,
+        initialNotificationTitle: 'Panic Button Service Active',
+        initialNotificationContent: 'Monitoring panic buttons',
+        autoStartOnBoot: true,
+      ),
+      iosConfiguration: IosConfiguration(
+        autoStart: true,
+        onForeground: onStart,
+        onBackground: onIosBackground,
+      ),
+    );
+
+    if (await service.isRunning()) {
+      print("Service is already running");
+    } else {
+      print("Starting service...");
+      await service.startService();
+    }
+  }
+
+  // Memastikan device identifier ada
+  Future<void> _ensureDeviceIdentifierExists() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!prefs.containsKey('device_identifier')) {
+      final identifier = DateTime.now().millisecondsSinceEpoch.toString();
+      await prefs.setString('device_identifier', identifier);
+      print('New device identifier created: $identifier');
+    }
+  }
+
+  // Menampilkan notifikasi
+  Future<void> showNotification(String title, String body,
+      {String? payload}) async {
+    if (kIsWeb) return;
+
+    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+        AndroidNotificationDetails(
+      'panic_button_channel',
+      'Panic Button Notifications',
+      channelDescription: 'Notifications for Panic Button alerts',
+      importance: Importance.max,
+      priority: Priority.high,
+      showWhen: true,
+      enableVibration: true,
+      playSound: true,
+      styleInformation: BigTextStyleInformation(''),
+      fullScreenIntent: true,
+    );
+
+    const DarwinNotificationDetails iOSPlatformChannelSpecifics =
+        DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      badgeNumber: 1,
+      threadIdentifier: 'panic_button_thread',
+    );
+
+    const NotificationDetails platformChannelSpecifics = NotificationDetails(
+      android: androidPlatformChannelSpecifics,
+      iOS: iOSPlatformChannelSpecifics,
+    );
+
+    try {
+      await flutterLocalNotificationsPlugin.show(
+        DateTime.now().millisecond,
+        title,
+        body,
+        platformChannelSpecifics,
+        payload: payload,
+      );
+      print('Notification shown successfully');
+    } catch (e) {
+      print('Error showing notification: $e');
+    }
+  }
+
+  // Mengambil dan memeriksa data
+  Future<void> fetchAndCheckData() async {
+    if (kIsWeb) return;
+
+    final url = Uri.parse('http://202.157.187.108:3000/data');
+    final prefs = await SharedPreferences.getInstance();
+    final lastCheckTime = prefs.getString('last_check_time');
+
+    try {
+      final response = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 3));
+
+      if (response.statusCode == 200) {
+        print('Response received at: ${DateTime.now().toIso8601String()}');
+
+        final dynamic decodedData = json.decode(response.body);
+        List<dynamic> devices = [];
+
+        if (decodedData is Map<String, dynamic>) {
+          // Single device data
+          devices = [decodedData];
+        } else if (decodedData is List) {
+          // Multiple devices data
+          devices = decodedData;
+        }
+
+        if (devices.isNotEmpty) {
+          print('Processing ${devices.length} devices');
+          await _processDevicesData(
+              devices, lastCheckTime); // Mengirim lastCheckTime
+          await prefs.setString(
+              'last_check_time', DateTime.now().toIso8601String());
+        } else {
+          print('No devices to process');
+        }
+      } else {
+        print('Server returned status code: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error fetching data: $e');
+    }
+  }
+
+  // Memproses data perangkat
+  Future<void> _processDevicesData(
+      List<dynamic> devices, String? lastCheckTime) async {
+    final DateTime checkTime = lastCheckTime != null
+        ? DateTime.parse(lastCheckTime)
+        : DateTime.now().subtract(const Duration(hours: 24));
+
+    print('Processing devices with checkTime: $checkTime');
+
+    for (var device in devices) {
+      try {
+        if (device is Map<String, dynamic>) {
+          await _processDeviceAlert(device);
+        } else {
+          print('Invalid device data format: $device');
+        }
+      } catch (e) {
+        print('Error processing device: $e');
+        print('Device data: $device');
+      }
+    }
+  }
+
+  // Memproses alert perangkat
+  Future<void> _processDeviceAlert(Map<String, dynamic> device) async {
+    try {
+      // Validasi dan ekstraksi end_device_ids
+      final endDeviceIds = device['end_device_ids'];
+      if (endDeviceIds == null || endDeviceIds is! Map<String, dynamic>) {
+        print('Invalid end_device_ids format');
+        return;
+      }
+
+      // Ekstrak informasi device
+      final String? deviceId = endDeviceIds['device_id'];
+      final String? devEui = endDeviceIds['dev_eui'];
+      final applicationIds = endDeviceIds['application_ids'];
+      final String? applicationId = applicationIds?['application_id'];
+
+      if (deviceId == null) {
+        print('Device ID is null');
+        return;
+      }
+
+      // Validasi received_at
+      final String? receivedAt = device['received_at'];
+      if (receivedAt == null) {
+        print('Missing received_at timestamp');
+        return;
+      }
+
+      // Parse dan validasi uplink_message
+      final uplinkMessage = device['uplink_message'];
+      if (uplinkMessage == null || uplinkMessage is! Map<String, dynamic>) {
+        print('Invalid uplink_message');
+        return;
+      }
+
+      final decodedPayload = uplinkMessage['decoded_payload'];
+      if (decodedPayload == null || decodedPayload is! Map<String, dynamic>) {
+        print('Invalid decoded_payload');
+        return;
+      }
+
+      final alertValue = decodedPayload['device_alert'];
+      if (alertValue == null) {
+        print('Missing device_alert');
+        return;
+      }
+
+      // Generate alert identifier
+      final currentAlert = '$deviceId:$alertValue:$receivedAt';
+
+      // Check if this is a new alert
+      if (_lastDeviceAlerts[deviceId] != currentAlert) {
+        print('New alert detected for device $deviceId: $alertValue');
+
+        // Prepare notification content
+        var notifTitle = 'PANIC BUTTON $deviceId';
+        var notifBody = 'Alert detected from $deviceId';
+
+        if (devEui != null) {
+          notifBody += '\nEUI: $devEui';
+        }
+
+        if (applicationId != null) {
+          notifBody += '\nApplication: $applicationId';
+        }
+
+        notifBody += '\nTime: $receivedAt';
+
+        // Add gateway information if available
+        final rxMetadata = uplinkMessage['rx_metadata'];
+        if (rxMetadata is List && rxMetadata.isNotEmpty) {
+          final gateway = rxMetadata[0];
+          if (gateway is Map<String, dynamic> &&
+              gateway['gateway_ids'] is Map<String, dynamic>) {
+            final gatewayId = gateway['gateway_ids']['gateway_id'];
+            if (gatewayId != null) {
+              notifBody += '\nGateway: $gatewayId';
+            }
+          }
+        }
+
+        // Show notification
+        await showNotification(
+          notifTitle,
+          notifBody,
+          payload: json.encode({
+            'deviceId': deviceId,
+            'alert': alertValue,
+            'timestamp': receivedAt,
+            'eui': devEui,
+            'applicationId': applicationId
+          }),
+        );
+
+        // Update last alert
+        _lastDeviceAlerts[deviceId] = currentAlert;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_alert_$deviceId', currentAlert);
+      } else {
+        print('Alert already processed for device $deviceId');
+      }
+    } catch (e, stackTrace) {
+      print('Error processing device alert: $e');
+      print('Stack trace: $stackTrace');
+      print('Device data: $device');
+    }
+  }
+
+  // Mengirim notifikasi perangkat
+  Future<void> _sendDeviceNotification(
+      String deviceId,
+      Map<String, dynamic> deviceEndpointId,
+      Map<String, dynamic> device) async {
+    var notifTitle = 'PANIC BUTTON $deviceId';
+    var notifBody = 'Alert detected from $deviceId';
+
+    if (deviceEndpointId['dev_eui'] != null) {
+      notifBody += '\nEUI: ${deviceEndpointId['dev_eui']}';
+    }
+
+    if (device['received_at'] != null) {
+      notifBody += '\nTime: ${device['received_at']}';
+    }
+
+    await showNotification(
+      notifTitle,
+      notifBody,
+      payload: json.encode({
+        'deviceId': deviceId,
+        'alert': device['uplink_message']['decoded_payload']['device_alert'],
+        'timestamp': device['received_at'],
+        'eui': deviceEndpointId['dev_eui']
+      }),
+    );
+
+    print('Alert notification sent for device $deviceId');
+  }
+
+  // Membersihkan data lama
+  Future<void> cleanOldData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = DateTime.now();
+
+    final keys = prefs.getKeys();
+    for (String key in keys) {
+      if (key.startsWith('last_alert_')) {
+        final String? alertData = prefs.getString(key);
+        if (alertData != null) {
+          final parts = alertData.split(':');
+          if (parts.length >= 3) {
+            final alertTime = DateTime.parse(parts[2]);
+            // Hapus data yang lebih lama dari 24 jam
+            if (now.difference(alertTime).inHours > 24) {
+              await prefs.remove(key);
+              _lastDeviceAlerts.remove(key.replaceFirst('last_alert_', ''));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Inisialisasi dengan pemeriksaan berkala
+  Future<void> initializeWithPeriodicCheck() async {
+    await initialize();
+
+    Timer.periodic(const Duration(seconds: 1), (timer) async {
+      await fetchAndCheckData();
+    });
+
+    Timer.periodic(const Duration(minutes: 30), (timer) async {
+      await cleanOldData();
+    });
+  }
+
+  // Dispose service
+  Future<void> dispose() async {
+    final service = FlutterBackgroundService();
+    service.invoke('stopService');
+  }
+}
+
+// Entry point untuk background service Android
+@pragma('vm:entry-point')
+void onStart(ServiceInstance service) async {
+  DartPluginRegistrant.ensureInitialized();
+
+  final notificationService = NotificationService();
+
+  if (service is AndroidServiceInstance) {
+    service.on('setAsForeground').listen((event) async {
+      await service.setAsForegroundService();
+    });
+
+    service.on('setAsBackground').listen((event) async {
+      await service.setAsBackgroundService();
+    });
+  }
+
+  Timer? timer;
+
+  void startTimer() {
+    timer?.cancel();
+
+    timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (service is AndroidServiceInstance) {
+        if (await service.isForegroundService()) {
+          await service.setForegroundNotificationInfo(
+            title: 'Panic Button Service Active',
+            content: 'Monitoring: ${DateTime.now().toString()}',
+          );
+        }
+      }
+
+      try {
+        await notificationService.fetchAndCheckData();
+        service.invoke(
+          'update',
+          {
+            "current_date": DateTime.now().toIso8601String(),
+            "is_running": true,
+          },
+        );
+      } catch (e) {
+        print('Background task error: $e');
+      }
+    });
+  }
+
+  startTimer();
+
+  service.on('stopService').listen((event) async {
+    print('Stopping service...');
+    timer?.cancel();
+    await service.stopSelf();
+  });
+
+  service.on('restart').listen((event) {
+    print('Restarting service...');
+    startTimer();
+  });
+
+  service.on('error').listen((event) {
+    print('Service error: $event');
+  });
+}
+
+// Entry point untuk background service iOS
+@pragma('vm:entry-point')
+Future<bool> onIosBackground(ServiceInstance service) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+  return true;
+}

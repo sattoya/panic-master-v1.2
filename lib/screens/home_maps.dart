@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
-import 'package:panic_button/components/map_componet.dart';
 import 'package:panic_button/data/manual_coordinate.dart';
 import 'package:panic_button/service/alarm_service.dart';
 import 'package:panic_button/service/auth_service.dart';

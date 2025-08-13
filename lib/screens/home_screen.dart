@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
-import 'package:panic_button/components/map_componet.dart';
 import 'package:panic_button/data/manual_coordinate.dart';
 import 'package:panic_button/service/alarm_service.dart';
 import 'package:panic_button/service/auth_service.dart';
@@ -309,47 +308,78 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ukuran asli gambar peta (misal 400x600)
+    const double originalWidth = 2940;
+    const double originalHeight = 1360;
+
+    final List<Map<String, double>> markerPositions = [
+      {"left": 1380, "top": 830}, // btn1
+      {"left": 1490, "top": 815}, // btn2
+      {"left": 1530, "top": 820}, // gtw1
+      {"left": 1580, "top": 780}, // btn3
+      {"left": 1620, "top": 680}, // btn4
+      {"left": 1595, "top": 520}, // btn5
+      {"left": 1565, "top": 390}, // btn6
+      {"left": 1535, "top": 290}, // btn7
+      {"left": 1435, "top": 290}, // btn8
+      {"left": 1420, "top": 350}, // gtw2
+      {"left": 1420, "top": 400}, // btn9
+      {"left": 1390, "top": 517}, // btn10
+      {"left": 1299, "top": 517}, // btn11
+      {"left": 1535, "top": 612}, // btn12
+      {"left": 1375, "top": 612}, // btn13
+      {"left": 1275, "top": 612}, // btn14
+      {"left": 1525, "top": 390}, // btn15
+      {"left": 1495, "top": 460}, // btn16
+    ];
+
     return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Panic Button Map'),
-            Text(
-              'Active: $_activeDevices | Last Update: ${DateFormat('HH:mm:ss').format(_lastUpdateTime)}',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _resetAllDevices,
-            tooltip: 'Reset all panic buttons',
+      body: Center(
+        child: AspectRatio(
+          aspectRatio: originalWidth / originalHeight, // Kunci rasio gambar
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              double scaleX = constraints.maxWidth / originalWidth;
+              double scaleY = constraints.maxHeight / originalHeight;
+
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: Image.asset(
+                      'image/sanur.png',
+                      fit: BoxFit.fill, // Jangan cover/crop, isi penuh
+                    ),
+                  ),
+                  ...markerPositions.asMap().entries.map((entry) {
+                    int index = entry.key;
+                    double left = entry.value["left"]! * scaleX;
+                    double top = entry.value["top"]! * scaleY;
+
+                    final device =
+                        _devices.values.elementAt(index % _devices.length);
+
+                    return Positioned(
+                      left: left,
+                      top: top,
+                      child: GestureDetector(
+                        onTap: () => _showDeviceInfo(device),
+                        child: Icon(
+                          Icons.change_circle,
+                          color: device.isActive
+                              ? Colors.red
+                              : (index == 2 || index == 9)
+                                  ? Colors.purple
+                                  : Colors.green,
+                          size: 17,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ],
+              );
+            },
           ),
-        ],
-      ),
-      drawer: LogComponent(
-        logEntries: _logEntries,
-        logService: _logService,
-        authService: _authService,
-      ),
-      body: GoogleMap(
-        initialCameraPosition: const CameraPosition(
-          target: _defaultCenter,
-          zoom: 15,
         ),
-        markers: _markerService.createMarkers(
-          _devices,
-          _markerIcons['active'] ?? BitmapDescriptor.defaultMarker,
-          _markerIcons['inactive'] ?? BitmapDescriptor.defaultMarker,
-          _markerIcons['gateway'] ?? BitmapDescriptor.defaultMarker,
-          _showDeviceInfo,
-        ),
-        onMapCreated: _onMapCreated,
-        myLocationEnabled: true,
-        myLocationButtonEnabled: true,
-        zoomControlsEnabled: true,
       ),
     );
   }

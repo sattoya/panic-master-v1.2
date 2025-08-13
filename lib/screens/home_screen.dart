@@ -308,7 +308,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ukuran asli gambar peta (misal 400x600)
     const double originalWidth = 2940;
     const double originalHeight = 1360;
 
@@ -334,9 +333,27 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        title: const Text(
+          "Panic Button Map",
+          style: TextStyle(color: Colors.black),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Center(
+              child: Text(
+                "Active: $_activeDevices | Last Update: ${DateFormat('HH:mm:ss').format(_lastUpdateTime)}",
+                style: const TextStyle(color: Colors.black, fontSize: 14),
+              ),
+            ),
+          )
+        ],
+      ),
       body: Center(
         child: AspectRatio(
-          aspectRatio: originalWidth / originalHeight, // Kunci rasio gambar
+          aspectRatio: originalWidth / originalHeight,
           child: LayoutBuilder(
             builder: (context, constraints) {
               double scaleX = constraints.maxWidth / originalWidth;
@@ -347,7 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Positioned.fill(
                     child: Image.asset(
                       'image/sanur.png',
-                      fit: BoxFit.fill, // Jangan cover/crop, isi penuh
+                      fit: BoxFit.fill,
                     ),
                   ),
                   ...markerPositions.asMap().entries.map((entry) {

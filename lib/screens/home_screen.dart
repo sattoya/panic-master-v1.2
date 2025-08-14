@@ -348,8 +348,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: const TextStyle(color: Colors.black, fontSize: 14),
               ),
             ),
-          )
+          ),
         ],
+        iconTheme: const IconThemeData(
+            color: Colors.black), // biar hamburger icon hitam
+      ),
+      // Tambahkan drawer di sini
+      drawer: LogComponent(
+        logEntries: _logEntries,
+        logService: _logService,
+        authService: _authService,
       ),
       body: Center(
         child: AspectRatio(
